@@ -1,0 +1,40 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="pytorch" />
+          <option value="torchvision" />
+          <option value="pytorch-cuda" />
+          <option value="opencv" />
+          <option value="fastapi" />
+          <option value="uvicorn" />
+          <option value="python-multipart" />
+          <option value="pydantic" />
+          <option value="pydantic-settings" />
+          <option value="mediapipe" />
+          <option value="transformers" />
+          <option value="diffusers" />
+          <option value="accelerate" />
+          <option value="controlnet-aux" />
+          <option value="timm" />
+          <option value="einops" />
+          <option value="Pillow" />
+          <option value="albumentations" />
+          <option value="scikit-image" />
+          <option value="numpy" />
+          <option value="scipy" />
+          <option value="tqdm" />
+          <option value="loguru" />
+          <option value="python-dotenv" />
+          <option value="aiofiles" />
+          <option value="boto3" />
+          <option value="pytest" />
+          <option value="pytest-asyncio" />
+          <option value="httpx" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>

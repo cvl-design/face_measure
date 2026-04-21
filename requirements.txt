@@ -1,0 +1,34 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Config
+pydantic-settings==2.6.1
+pydantic[email]==2.10.1
+python-dotenv==1.0.1
+
+# Database
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+
+# HTTP & async
+httpx==0.28.0
+python-multipart==0.0.12
+
+# Logging
+structlog==24.4.0
+
+# Image processing (Phase 1+)
+pillow==11.0.0
+opencv-python-headless==4.10.0.84
+
+# AI models (Phase 2+)
+mediapipe==0.10.18
+
+# PDF export (Phase 7)
+weasyprint==63.0
+
+# Dev / test
+pytest==8.3.3
+pytest-asyncio==0.24.0
+httpx  # already listed, used in tests too

@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip --version)",
+      "Bash(pip install:*)",
+      "Bash(python -c ':*)",
+      "Bash(python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --log-config /dev/null)",
+      "Bash(curl -s http://127.0.0.1:8000/health)",
+      "Bash(python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(curl:*)",
+      "Bash(taskkill /F /IM python.exe)",
+      "Bash(npm --version)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(python -c \"from backend.utils.image_utils import assess_image_quality, preprocess_and_save; print\\('image_utils OK'\\)\")",
+      "Bash(python -c \"from backend.api.routes.capture import router; print\\('capture router OK'\\)\")",
+      "Bash(python -c \"from backend.main import app; print\\('main app OK'\\)\")",
+      "Bash(python -c \"import mediapipe; print\\(mediapipe.__version__\\)\")",
+      "Bash(pip show:*)",
+      "Bash(python -c \"from backend.services.face_detector import face_detector; print\\('face_detector import OK'\\)\")",
+      "Bash(python -c \"from backend.services.defect_scorer import score_from_landmarks; print\\('defect_scorer import OK'\\)\")",
+      "Bash(python -c \"from backend.api.routes.analysis import router; print\\('analysis router import OK'\\)\")",
+      "Bash(python -c \"from backend.main import app; print\\('main import OK'\\)\")"
+    ]
+  }
+}
