@@ -223,6 +223,7 @@ class DetectionResultResponse(BaseModel):
     overall: OverallAssessment | None = None
     api_provider: str = ""
     api_cost_cny: float = 0.0
+    annotated_image_url: str = ""   # Phase 3: base64 data URL of landmark-annotated image
 
 
 # ── 健康检查 ─────────────────────────────────────────────────────

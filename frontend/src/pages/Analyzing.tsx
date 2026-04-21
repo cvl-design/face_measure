@@ -7,11 +7,12 @@ import type { AestheticMetrics, DefectItem } from '../store/sessionStore'
 const POLL_INTERVAL_MS = 2000
 const TIMEOUT_MS       = 60_000   // 60s 超时
 
-type Step = 'capture' | 'geometry' | 'report'
+type Step = 'capture' | 'geometry' | 'vlm' | 'report'
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'capture',  label: '采集完成' },
   { key: 'geometry', label: '几何分析' },
+  { key: 'vlm',      label: 'AI 视觉' },
   { key: 'report',   label: '生成报告' },
 ]
 
@@ -51,6 +52,7 @@ export default function Analyzing() {
 
       setCurrentStep('geometry')
 
+      let pollCount = 0
       // 2. 轮询 GET /analysis
       timerId = setInterval(async () => {
         if (unmounted) {
@@ -64,6 +66,10 @@ export default function Analyzing() {
           setTimedOut(true)
           return
         }
+
+        pollCount++
+        // 轮询约 4s 后（2次），切换到 VLM 步骤（视觉反馈）
+        if (pollCount === 2) setCurrentStep('vlm')
 
         try {
           const result = await analysisApi.getResult(sessionId!)
@@ -87,8 +93,9 @@ export default function Analyzing() {
           }
 
           const defects: DefectItem[] = (result.defects ?? []).map((d: DefectItem) => d)
+          const annotatedUrl: string = result.annotated_image_url ?? ''
 
-          setAnalysisResult(defects, metrics, '')
+          setAnalysisResult(defects, metrics, annotatedUrl)
 
           // 短暂停留显示"生成报告"再跳转
           setTimeout(() => {

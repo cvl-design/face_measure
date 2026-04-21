@@ -13,7 +13,7 @@
 | Phase 0 | 项目骨架（后端 + 前端脚手架） | ✅ 完成 | 2026-04-21 |
 | Phase 1 | 多角度面部采集（上传 + 质量评估） | ✅ 完成 | 2026-04-21 |
 | Phase 2 | 本地几何分析（MediaPipe + 规则引擎） | ✅ 完成 | 2026-04-21 |
-| Phase 3 | VLM 集成（Qwen3-VL + 标注渲染） | ⬜ 待开发 | — |
+| Phase 3 | VLM 集成（Qwen3-VL + 标注渲染） | ✅ 完成 | 2026-04-21 |
 | Phase 4 | 表型匹配（FAISS + InsightFace） | ⬜ 待开发 | — |
 | Phase 5 | 方案协创（治疗推荐 + 实时计价） | ⬜ 待开发 | — |
 | Phase 6 | 模拟渲染（TPS 预览 + ComfyUI） | ⬜ 待开发 | — |
@@ -402,6 +402,98 @@ set_mediapipe_loaded(True)
 
 ---
 
+## Phase 3 — VLM 集成
+
+**完成日期**：2026-04-21
+
+### 关键技术决策
+
+**VLM 提供商**：SiliconFlow API，模型 `Qwen/Qwen3-VL-8B-Instruct`，支持多图输入。
+
+**双引擎架构**：Phase 2 几何引擎（快速、确定性）+ Phase 3 VLM（视觉理解、28类缺陷）并行互补：
+- 几何引擎输出注入 VLM 上下文（减少幻觉）
+- VLM 结果按 `name_zh` 与几何结果合并去重
+- 同名缺陷：confidence 加权均值（0.6 VLM + 0.4 几何），severity 取较大值
+
+**缓存策略**：进程内 `InMemoryCache`（TTL 1 小时），用图片路径列表的 SHA256 作为 key，相同图片不二次调用 API。
+
+**标注渲染**：PIL 在后台 `run_in_executor` 中同步渲染，不阻塞事件循环；输出限制 800px 宽，JPEG 质量 85，编码为 base64 data URL 直接嵌入 JSON 响应。
+
+### 后端实现
+
+#### `backend/prompts/detector_prompt.md`
+
+System 提示词定义 28 类缺陷（皱纹 9 / 容量缺失 7 / 轮廓 8 / 下垂 5），每类含编号 / 中文名 / `defect_key` / 临床定义。输出格式要求严格 JSON（`face_detected` / `estimated_age` / `defects[]` / `overall_summary` / `priority_concerns` / `vlm_notes`）。
+
+#### `backend/services/vlm_detector.py`
+
+核心函数：
+
+| 函数 | 说明 |
+|------|------|
+| `_build_messages()` | 拼接 OpenAI 格式 messages：system prompt + user（文字前缀 + 多张 image_url blocks） |
+| `_parse_vlm_response()` | 从 VLM 响应提取 JSON（支持纯 JSON / markdown 代码块 / 正则兜底） |
+| `_normalize_defect()` | 规范化单个缺陷字段，过滤 confidence < threshold |
+| `detect_defects_vlm()` | 异步调用 SiliconFlow，解析结果，记录成本，无 API Key 时优雅降级 |
+| `merge_defects()` | 合并几何 + VLM 缺陷列表，同名去重，清除内部 `_source` 标记 |
+
+API 参数：温度 0.1 / max_tokens 2048 / timeout 60s / 置信度阈值 0.7（均可通过 `.env` 覆盖）。
+
+#### `backend/services/cache_service.py`
+
+```python
+class InMemoryCache:  # TTL dict，读时惰性过期清除，不依赖 Redis
+make_cache_key(paths) → sha256[:32]   # 路径列表哈希
+vlm_cache = InMemoryCache(ttl=3600)   # 模块级单例
+```
+
+#### `backend/services/annotation_renderer.py`
+
+MediaPipe 478 关键点 → PIL 绘制管线：
+
+```
+原图 → resize ≤ 800px → RGBA 叠加层
+  → 10 组引导折线（面部轮廓/眉/眼/鼻/嘴）— indigo 半透明
+  → 7 个美学高光点（颧骨/眉峰/鼻尖/嘴角）— amber 4px 圆
+  → 478 关键点 — indigo 1px 小圆
+→ alpha_composite → JPEG q85 → base64 data URL
+```
+
+#### `backend/utils/cost_tracker.py`
+
+```python
+estimate_cost(input_tokens, output_tokens) → float  # ¥0.21/M tokens（输入/输出同价）
+log_api_call(...)  # 追加 JSONL 到 data/cost_log.jsonl，失败仅 warning 不抛出
+```
+
+#### `backend/api/routes/analysis.py`（更新）
+
+`_run_analysis()` 后台任务新增步骤：
+1. `render_annotated_image_sync()` [run_in_executor] → `annotated_image_url`（base64）
+2. `collect_image_paths()` 收集所有角度图片
+3. 缓存查命中 → 跳过 VLM；未命中 → `detect_defects_vlm()`
+4. `merge_defects(geometry, vlm)` → `final_defects`
+5. `overall_dict["annotated_image_url"]` + `["estimated_age"]` 附加到 ORM 字段
+6. `GET /analysis` 从 `overall_dict` 提取附加字段，构建 `AgeAssessment`，返回 `annotated_image_url`
+
+#### `backend/models/schemas.py`（新增字段）
+
+`DetectionResultResponse` 新增 `annotated_image_url: str = ""`。
+
+### 前端实现
+
+#### `frontend/src/pages/Analyzing.tsx`（更新）
+
+步骤条扩展为 4 步（采集完成 → 几何分析 → AI 视觉 → 生成报告）。第 2 次轮询（~4s）后自动切换到"AI 视觉"步骤，提供进度视觉反馈。
+
+#### `frontend/src/pages/Workspace.tsx`（更新）
+
+右栏逻辑：
+- `annotatedImageUrl` 非空 → `AnnotatedImagePanel`（全高图像 + 顶部标题栏 + 底部图例）
+- `annotatedImageUrl` 为空 → `SimulationPlaceholder`（Phase 6 占位）
+
+---
+
 ## 关键问题与修复记录
 
 ### 1. mediapipe 0.10.x API 变更
@@ -427,14 +519,6 @@ set_mediapipe_loaded(True)
 ---
 
 ## 待实现功能（后续 Phase）
-
-### Phase 3 — VLM 集成
-- `backend/services/vlm_detector.py`：5 张图 base64 打包，调用 SiliconFlow Qwen3-VL-8B-Instruct
-- `backend/prompts/detector_prompt.md`：28 类缺陷定义 + 结构化 JSON 输出格式
-- `backend/services/annotation_renderer.py`：关键点坐标 → PIL 引导折线标注图
-- `backend/services/cache_service.py`：SHA256 缓存（Redis / 内存 dict）
-- `backend/utils/cost_tracker.py`：JSONL API 成本追踪
-- 前端：`FaceAnnotator.tsx` Canvas 标注渲染 + `DefectList.tsx` 医生审阅交互
 
 ### Phase 4 — 表型匹配
 - 模板库生成：SDXL + 亚洲面孔 LoRA，500–1000 张虚拟人脸
@@ -473,9 +557,10 @@ set_mediapipe_loaded(True)
 | pydantic-settings | 2.x | 配置读取 |
 | structlog | — | 结构化日志 |
 | mediapipe | **0.10.33** | 人脸关键点检测（Tasks API） |
-| Pillow | — | 图片处理 |
+| Pillow | — | 图片处理 + 关键点标注渲染 |
 | numpy | — | 关键点坐标数组运算 |
 | python-multipart | — | 文件上传 FormData 解析 |
+| httpx | — | 异步 HTTP 客户端（VLM API 调用）|
 
 ### 本地 AI 模型
 
