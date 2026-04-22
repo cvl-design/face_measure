@@ -25,8 +25,9 @@ export default function Analyzing() {
   const [error, setError]             = useState<string | null>(null)
   const [timedOut, setTimedOut]       = useState(false)
 
-  const triggeredRef = useRef(false)
-  const startTime    = useRef(Date.now())
+  const triggeredRef   = useRef(false)
+  const startTime      = useRef(Date.now())
+  const errorCountRef  = useRef(0)
 
   // Guard
   useEffect(() => {
@@ -36,18 +37,22 @@ export default function Analyzing() {
   useEffect(() => {
     if (!sessionId) return
 
+    // StrictMode 双重触发保护：cleanup 时重置 ref，确保第二次挂载能正常运行
+    if (triggeredRef.current) return
+    triggeredRef.current = true
+
     let timerId: ReturnType<typeof setInterval>
     let unmounted = false
 
     async function triggerAndPoll() {
-      // 1. POST /analyze（幂等，已 analyzing 时也会正常返回）
+      // 1. POST /analyze（幂等，已 analyzing/consulting 时也会正常返回）
       try {
         await analysisApi.trigger(sessionId!)
       } catch (e) {
         if (!unmounted) {
           setError(e instanceof Error ? e.message : '触发分析失败，请重试')
-          return
         }
+        return
       }
 
       setCurrentStep('geometry')
@@ -102,27 +107,31 @@ export default function Analyzing() {
             if (!unmounted) navigate('/workspace')
           }, 800)
         } catch (e) {
-          // 忽略单次轮询错误，继续重试
-          console.warn('Poll error', e)
+          // 连续 3 次错误后显示给用户，单次错误继续重试
+          console.error('Poll error', e)
+          errorCountRef.current++
+          if (errorCountRef.current >= 3) {
+            clearInterval(timerId)
+            if (!unmounted) setError(e instanceof Error ? e.message : '获取分析结果失败，请重试')
+          }
         }
       }, POLL_INTERVAL_MS)
     }
 
-    // 防止 StrictMode 双重触发
-    if (!triggeredRef.current) {
-      triggeredRef.current = true
-      triggerAndPoll()
-    }
+    triggerAndPoll()
 
     return () => {
       unmounted = true
       clearInterval(timerId)
+      // cleanup 时重置，让第二次挂载（StrictMode）或重试时能重新触发
+      triggeredRef.current = false
     }
   }, [sessionId, navigate, setAnalysisResult])
 
   function handleRetry() {
     triggeredRef.current = false
     startTime.current = Date.now()
+    errorCountRef.current = 0
     setError(null)
     setTimedOut(false)
     setCurrentStep('capture')
@@ -141,9 +150,8 @@ export default function Analyzing() {
       {/* 进度步骤 */}
       <div className="flex items-center gap-0 mb-12 w-full max-w-xs">
         {STEPS.map((step, i) => {
-          const done    = i < stepIndex
-          const active  = i === stepIndex
-          const pending = i > stepIndex
+          const done   = i < stepIndex
+          const active = i === stepIndex
 
           return (
             <div key={step.key} className="flex items-center flex-1 last:flex-none">

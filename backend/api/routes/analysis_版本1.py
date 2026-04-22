@@ -30,8 +30,6 @@ from backend.services.cache_service import make_cache_key, cache_get_vlm, cache_
 router = APIRouter(prefix="/api/v1/sessions", tags=["analysis"])
 logger = get_logger(__name__)
 
-# ── 全局防重入锁（修复核心：防止同一个session重复触发分析） ──
-ANALYSIS_RUNNING = set()
 
 # ── 工具函数 ───────────────────────────────────────────────────────
 
@@ -254,10 +252,6 @@ async def _run_analysis(session_id: str) -> None:
         logger.exception("Analysis task B (write) failed", session_id=session_id, error=str(exc))
         async with AsyncSessionLocal() as db2:
             await _mark_failed(db2, session_id)
-    finally:
-        # 任务结束，释放锁
-        if session_id in ANALYSIS_RUNNING:
-            ANALYSIS_RUNNING.remove(session_id)
 
 
 async def _mark_failed(db: AsyncSession, session_id: str) -> None:
@@ -266,9 +260,6 @@ async def _mark_failed(db: AsyncSession, session_id: str) -> None:
     if session:
         session.status = "capturing"
         await db.commit()
-        # 失败也要释放锁
-        if session_id in ANALYSIS_RUNNING:
-            ANALYSIS_RUNNING.remove(session_id)
 
 
 # ── POST /{session_id}/analyze ────────────────────────────────────
@@ -283,11 +274,6 @@ async def trigger_analysis(
     session_id: str = PathParam(..., description="会话 UUID"),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    # ── 防重入核心：同一个session只允许运行一次 ──
-    if session_id in ANALYSIS_RUNNING:
-        logger.warning("Duplicate analysis trigger rejected", session_id=session_id)
-        return {"message": "分析正在进行中，请稍候", "status": "analyzing"}
-
     # ── 校验 session ──────────────────────────────────────────────
     session = await db.get(Session, session_id)
     if session is None:
@@ -326,9 +312,6 @@ async def trigger_analysis(
     # ── 状态切换 → analyzing ─────────────────────────────────────
     session.status = "analyzing"
     await db.commit()
-
-    # ── 加入运行中集合 ──
-    ANALYSIS_RUNNING.add(session_id)
 
     # ── 添加后台任务 ──────────────────────────────────────────────
     background_tasks.add_task(_run_analysis, session_id)
