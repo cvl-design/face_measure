@@ -33,6 +33,9 @@ export interface DefectItem {
   clinical_description?: string
   treatment_suggestion?: string
   anatomical_regions: string[]
+  // 医生操作状态（前端本地，不上传后端）
+  checked?: boolean      // 是否勾选纳入方案
+  priority?: number      // 医生设置的优先级 1–3（1=高，2=中，3=低）
 }
 
 export interface AestheticMetrics {
@@ -134,6 +137,7 @@ interface SessionActions {
   setAnalysisResult: (defects: DefectItem[], metrics: AestheticMetrics, annotatedUrl: string) => void
   setAnalyzing: (v: boolean) => void
   toggleDefect: (defectId: string) => void
+  setDefectPriority: (defectId: string, priority: number) => void
 
   // 表型
   setTemplateMatches: (matches: TemplateMatch[], gap: GapAnalysisItem[]) => void
@@ -203,12 +207,23 @@ export const useSessionStore = create<SessionState & SessionActions>((set) => ({
   setCaptureResult: (captureId, qualityScores) => set({ captureId, qualityScores }),
 
   setAnalysisResult: (defects, aestheticMetrics, annotatedImageUrl) =>
-    set({ defects, aestheticMetrics, annotatedImageUrl, isAnalyzing: false }),
+    set({
+      defects: defects.map((d) => ({ ...d, checked: true, priority: 2 })),
+      aestheticMetrics,
+      annotatedImageUrl,
+      isAnalyzing: false,
+    }),
   setAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
   toggleDefect: (defectId) =>
     set((s) => ({
       defects: s.defects.map((d) =>
-        d.defect_id === defectId ? { ...d, _hidden: !('_hidden' in d) } : d
+        d.defect_id === defectId ? { ...d, checked: !d.checked } : d
+      ),
+    })),
+  setDefectPriority: (defectId, priority) =>
+    set((s) => ({
+      defects: s.defects.map((d) =>
+        d.defect_id === defectId ? { ...d, priority } : d
       ),
     })),
 
